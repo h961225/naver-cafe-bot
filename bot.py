@@ -2,7 +2,9 @@ from pathlib import Path
 import json
 import os
 import requests
+
 from selenium import webdriver
+from selenium.common.exceptions import TimeoutException, UnexpectedAlertPresentException
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -36,14 +38,27 @@ def save_state(state: dict) -> None:
 
 def build_driver():
     options = webdriver.ChromeOptions()
+
+    # GitHub Actions 안정화 옵션
     options.add_argument("--headless=new")
     options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1920,1080")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--lang=ko-KR")
+    options.add_argument("--disable-extensions")
+    options.add_argument("--disable-background-networking")
+    options.add_argument("--disable-sync")
+    options.add_argument("--disable-features=Translate,BackForwardCache")
     options.add_argument("--disable-blink-features=AutomationControlled")
-    return webdriver.Chrome(service=Service(), options=options)
+
+    # 전체 리소스 로딩을 끝까지 기다리지 않음
+    options.page_load_strategy = "eager"
+
+    driver = webdriver.Chrome(service=Service(), options=options)
+    driver.set_page_load_timeout(45)
+    driver.set_script_timeout(45)
+    return driver
 
 
 def send_discord_message(content: str) -> None:
@@ -63,10 +78,21 @@ def get_latest_post(menu_id: int, url: str):
     driver = build_driver()
 
     try:
-        driver.get(url)
-        print("📄 게시판 접속 완료")
+        try:
+            driver.get(url)
+            print("📄 게시판 접속 완료")
+        except TimeoutException as e:
+            print(f"⚠️ 페이지 로드 타임아웃. DOM 파싱 계속 시도: {e}")
+        except UnexpectedAlertPresentException:
+            try:
+                alert = driver.switch_to.alert
+                print(f"⚠️ Alert 감지: {alert.text}")
+                alert.accept()
+            except Exception:
+                pass
+            return None
 
-        WebDriverWait(driver, 20).until(
+        WebDriverWait(driver, 30).until(
             EC.presence_of_element_located((By.CSS_SELECTOR, "table.article-table tbody tr"))
         )
         print("⏳ 게시글 로딩 완료")
@@ -76,6 +102,7 @@ def get_latest_post(menu_id: int, url: str):
 
         for row in rows:
             try:
+                # 고정 공지글 제외
                 if row.find_elements(By.CSS_SELECTOR, "span.ico_notice"):
                     continue
 
@@ -111,6 +138,7 @@ def get_latest_post(menu_id: int, url: str):
             except Exception as e:
                 print(f"⚠️ 행 파싱 오류: {e}")
 
+        print("📭 파싱 가능한 게시글이 없습니다.")
         return None
 
     except Exception as e:
@@ -123,7 +151,7 @@ def get_latest_post(menu_id: int, url: str):
 
 def main():
     state = load_state()
-    print("✅ 메뉴2 & 메뉴3 게시판 1회 확인 시작")
+    print("✅ 방송 공지 게시판 1회 확인 시작")
 
     for menu_id, url in BOARD_URLS.items():
         post = get_latest_post(menu_id, url)
