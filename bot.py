@@ -12,7 +12,6 @@ from selenium.webdriver.support import expected_conditions as EC
 WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
 
 BOARD_URLS = {
-    2: "https://cafe.naver.com/f-e/cafes/30244990/menus/2",
     3: "https://cafe.naver.com/f-e/cafes/30244990/menus/3",
 }
 
